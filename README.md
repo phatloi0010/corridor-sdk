@@ -42,7 +42,7 @@ already have it).
 
 | API | Kind | Status |
 |-----|------|--------|
-| `getPolicy(corridorId)` | Soroban read | ✅ the on-chain `CorridorPolicy` |
+| `getPolicy(corridorId)` · `invalidatePolicy(corridorId?)` | Soroban read | ✅ the on-chain `CorridorPolicy` (with opt-in per-corridor TTL cache via `policyCacheTtlMs`) |
 | `isCleared(corridorId, nullifier)` | Soroban read | ✅ the payout gate |
 | `passes(corridorId)` · `passRecord(corridorId, nullifier)` | Soroban read | ✅ aggregate count · full `PassRecord` |
 | `buildWitness(cred, policy, req, opts)` | local | ✅ assembles the 9-field public vector + private witness, **verifies the issuer signature, every predicate, and the secret's entropy first** |
@@ -152,8 +152,15 @@ new Corridor({                                // or fully explicit
   rpcUrl, networkPassphrase,
   registryContractId, attestationContractId,
   proverUrl?, relayerUrl?,
+  policyCacheTtlMs?,                          // opt-in TTL (ms) for getPolicy() per corridor
 });
 ```
+
+When `policyCacheTtlMs` is set (e.g. `30_000`), `getPolicy(corridorId)` caches
+each corridor's policy in memory until the TTL expires or you call
+`invalidatePolicy(corridorId)` (or `invalidatePolicy()` to clear all cached
+corridors). By default (`undefined` or `<= 0`), every `getPolicy` call queries
+the RPC directly.
 
 `TESTNET` tracks
 [`corridor-contracts/deployments/testnet.json`](https://github.com/Sconce-Labs/corridor-contracts/blob/main/deployments/testnet.json)

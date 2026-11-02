@@ -22,13 +22,44 @@ const SIM_SOURCE = "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWHF";
 const b32 = (hex: Bytes32): xdr.ScVal =>
   nativeToScVal(bytes32ToBuffer(hex), { type: "bytes" });
 
+export interface SorobanReaderOptions {
+  /**
+   * Optional TTL (in milliseconds) for caching `getPolicy(corridorId)` responses
+   * per corridor. Overrides `cfg.policyCacheTtlMs` when provided.
+   * Disabled by default (`undefined` or `<= 0`).
+   */
+  policyCacheTtlMs?: number;
+  /** Optional clock source returning current time in milliseconds (defaults to `Date.now`). */
+  now?: () => number;
+}
+
+interface CachedPolicyEntry {
+  policy: CorridorPolicy;
+  expiresAt: number;
+}
+
+function clonePolicy(policy: CorridorPolicy): CorridorPolicy {
+  return {
+    ...policy,
+    acceptedIssuers: [...policy.acceptedIssuers],
+  };
+}
+
 export class SorobanReader {
   private readonly server: rpc.Server;
+  private readonly policyCacheTtlMs: number;
+  private readonly now: () => number;
+  private readonly policyCache = new Map<Bytes32, CachedPolicyEntry>();
 
-  constructor(private readonly cfg: CorridorConfig) {
+  constructor(
+    private readonly cfg: CorridorConfig,
+    opts: SorobanReaderOptions = {},
+  ) {
     this.server = new rpc.Server(cfg.rpcUrl, {
       allowHttp: cfg.rpcUrl.startsWith("http://"),
     });
+    this.policyCacheTtlMs = opts.policyCacheTtlMs ?? cfg.policyCacheTtlMs ?? 0;
+    this.now = opts.now ?? Date.now;
   }
 
   private async simulate(contractId: string, method: string, ...args: xdr.ScVal[]) {
@@ -46,8 +77,23 @@ export class SorobanReader {
     return { value: scValToNative(sim.result!.retval) } as const;
   }
 
-  /** Fetch a corridor's on-chain policy. Throws if it isn't registered. */
+  /**
+   * Fetch a corridor's on-chain policy. Throws if it isn't registered.
+   * When `policyCacheTtlMs > 0` is configured, serves cached responses per
+   * corridor until the TTL expires or `invalidatePolicy` is called.
+   */
   async getPolicy(corridorId: Bytes32): Promise<CorridorPolicy> {
+    const cacheKey = corridorId.toLowerCase() as Bytes32;
+    if (this.policyCacheTtlMs > 0) {
+      const cached = this.policyCache.get(cacheKey);
+      if (cached && this.now() < cached.expiresAt) {
+        return clonePolicy(cached.policy);
+      }
+      if (cached) {
+        this.policyCache.delete(cacheKey);
+      }
+    }
+
     const r = await this.simulate(
       this.cfg.registryContractId,
       "get_policy",
@@ -55,7 +101,7 @@ export class SorobanReader {
     );
     if ("error" in r) throw new Error(`get_policy: ${r.error}`);
     const p = r.value as Record<string, unknown>;
-    return {
+    const policy: CorridorPolicy = {
       operator: String(p.operator),
       acceptedIssuers: (p.accepted_issuers as Buffer[]).map(
         (x) => `0x${Buffer.from(x).toString("hex")}` as Bytes32,
@@ -70,6 +116,27 @@ export class SorobanReader {
       nowToleranceSecs: BigInt(p.now_tolerance_secs as bigint),
       paused: Boolean(p.paused),
     };
+
+    if (this.policyCacheTtlMs > 0) {
+      this.policyCache.set(cacheKey, {
+        policy: clonePolicy(policy),
+        expiresAt: this.now() + this.policyCacheTtlMs,
+      });
+    }
+
+    return policy;
+  }
+
+  /**
+   * Explicitly invalidate cached `CorridorPolicy` entries.
+   * Pass a `corridorId` to evict a single corridor, or omit it to clear all cached policies.
+   */
+  invalidatePolicy(corridorId?: Bytes32): void {
+    if (corridorId !== undefined) {
+      this.policyCache.delete(corridorId.toLowerCase() as Bytes32);
+    } else {
+      this.policyCache.clear();
+    }
   }
 
   /** Has this nullifier been granted a pass on this corridor? (payout gate) */

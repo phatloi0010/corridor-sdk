@@ -117,5 +117,10 @@ export interface CorridorConfig {
   relayerUrl?: string;
   /** Optional: a local prover endpoint the SDK POSTs the witness to. */
   proverUrl?: string;
+  /**
+   * Optional TTL (in milliseconds) for caching `getPolicy(corridorId)` per corridor.
+   * Disabled by default (`undefined` or `<= 0`), so every call hits the RPC unless opted in.
+   */
+  policyCacheTtlMs?: number;
 }
 // Network presets live in `networks.ts`.

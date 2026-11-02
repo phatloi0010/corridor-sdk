@@ -48,7 +48,7 @@ export {
   assembleCredential,
 } from "./fixture.js";
 export { SorobanReader } from "./soroban.js";
-export type { PassRecord } from "./soroban.js";
+export type { PassRecord, SorobanReaderOptions } from "./soroban.js";
 export { verifyWitnessLocally } from "./verify-local.js";
 export type { LocalCheck } from "./verify-local.js";
 export * from "./hex.js"; // incl. randomSecret, assertStrongSecret (audit H5)
@@ -70,9 +70,14 @@ export class Corridor {
     return new Corridor(fromEnv(env));
   }
 
-  /** Fetch a corridor's on-chain policy. */
+  /** Fetch a corridor's on-chain policy (cached per corridor if `policyCacheTtlMs` is set). */
   getPolicy(corridorId: Bytes32): Promise<CorridorPolicy> {
     return this.reader.getPolicy(corridorId);
+  }
+
+  /** Invalidate cached policy for a single `corridorId`, or all corridors when omitted. */
+  invalidatePolicy(corridorId?: Bytes32): void {
+    this.reader.invalidatePolicy(corridorId);
   }
 
   /** The payout gate: has this nullifier been granted a pass on this corridor? */
