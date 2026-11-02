@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added / Fixed — hex encoding edge cases (#17)
+- **`hex.ts` edge-case pinning and hardening**:
+  - `toBytes32` and `bytes32ToBigInt`: Added case-insensitive prefix handling (`0x` and `0X`), supporting inputs with or without prefix.
+  - Odd-length hex inputs: Left-padded with leading zeros (big-endian) into valid 32-byte words.
+  - Empty input: `""`, `"0x"`, `"0X"`, and empty `Uint8Array` produce 32 zero bytes (`0x00...00`) in `toBytes32` and `0n` in `bytes32ToBigInt`.
+  - Values above the field: Preserved as full 32-byte words up to `2^256 - 1`; added `isFieldElement()` and `assertFieldElement()` helpers to check bounds against scalar field modulus `BN254_FR`.
+  - Input validation: Throws on non-hex strings, negative integers, and inputs exceeding 32 bytes (> 64 hex characters or >= 2^256).
+  - Comprehensive unit test suite in `hex.test.ts` covering all edge cases.
+
 ### Changed — audit Round 2 hardening
 - **Issuance is now three steps and the issuer never sees `holderSecret`**
   (audit R2-H2). `prepareCredentialRequest(secret, salt, attrs)` (holder) →
