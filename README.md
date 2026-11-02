@@ -52,6 +52,7 @@ already have it).
 | `poseidon2` · `CONFORMANCE_VECTORS` · `holderBinding` · `statementMessage` · `issuerIdOf` | local | ✅ the hash helpers the circuit uses |
 | `randomSecret` / `randomFieldElement` · `assertStrongSecret` | local | ✅ CSPRNG `holder_secret` + a weak-value guard (`buildWitness` enforces it) |
 | `requestProof(witness)` | HTTP | ⏳ needs a local Noir prover (`proverUrl`) — M3/M6 |
+| `simulatedEnter(corridorId, proof, source)` | Soroban tx | ✅ assembles the simulated `corridor_attestation.enter(...)` tx for direct wallet (Freighter) signing |
 | `enter(corridorId, proof)` | HTTP | ⏳ needs a fee-sponsoring tx-relayer (`relayerUrl`) — M6 |
 
 ---
@@ -131,6 +132,27 @@ const witness = c.buildWitness(
 
 const proof = await c.requestProof(witness);   // POSTs to proverUrl (a process YOU control)
 await c.enter(corridorId, proof);              // via relayerUrl (M6)
+```
+
+Or sign and submit `enter()` directly from a browser wallet (**Freighter**) without a relayer:
+
+```ts
+import { getAddress, signTransaction } from "@stellar/freighter-api";
+import { rpc, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Corridor, TESTNET } from "@corridor/verify";
+
+const c = new Corridor(TESTNET);
+const { address } = await getAddress();
+
+// Assembles and simulates `corridor_attestation.enter(corridor_id, proof, public_inputs)`
+const unsignedTx = await c.simulatedEnter(corridorId, proof, address);
+
+const { signedTxXdr } = await signTransaction(unsignedTx.toXDR(), {
+  networkPassphrase: TESTNET.networkPassphrase,
+});
+const server = new rpc.Server(TESTNET.rpcUrl);
+const signedTx = TransactionBuilder.fromXDR(signedTxXdr, TESTNET.networkPassphrase);
+await server.sendTransaction(signedTx);
 ```
 
 `buildWitness` **throws locally** on an expired credential, one below the

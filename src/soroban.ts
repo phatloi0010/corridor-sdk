@@ -10,9 +10,11 @@ import {
   nativeToScVal,
   rpc,
   scValToNative,
+  Transaction,
   TransactionBuilder,
   xdr,
 } from "@stellar/stellar-sdk";
+import { PI_LEN } from "./types.js";
 import type { Bytes32, CorridorConfig, CorridorPolicy } from "./types.js";
 import { bytes32ToBuffer } from "./hex.js";
 
@@ -117,6 +119,59 @@ export class SorobanReader {
         `0x${Buffer.from(p.auditor_blob as Buffer).toString("hex")}` as Bytes32,
     };
   }
+
+  /**
+   * Assemble and simulate a `corridor_attestation.enter(corridor_id, proof, public_inputs)`
+   * transaction without submitting it, returning a ready-to-sign Soroban `Transaction`
+   * (with footprint, auth entries, and resource fee attached).
+   *
+   * Enables a wallet (such as Freighter) to sign `tx.toXDR()` directly when not
+   * routing through a fee-sponsoring relayer.
+   */
+  async simulatedEnter(
+    corridorId: Bytes32,
+    proof: { bytes: Uint8Array; publicInputs: Bytes32[] },
+    source: string | Account,
+    opts: SimulatedEnterOptions = {},
+  ): Promise<Transaction> {
+    if (proof.publicInputs.length !== PI_LEN) {
+      throw new Error(
+        `enter: expected ${PI_LEN} publicInputs, got ${proof.publicInputs.length}`,
+      );
+    }
+    const account =
+      typeof source === "string" ? await this.server.getAccount(source) : source;
+    const op = new Contract(this.cfg.attestationContractId).call(
+      "enter",
+      b32(corridorId),
+      nativeToScVal(Buffer.from(proof.bytes), { type: "bytes" }),
+      xdr.ScVal.scvVec(proof.publicInputs.map(b32)),
+    );
+    const raw = new TransactionBuilder(account, {
+      fee: opts.fee ?? "100",
+      networkPassphrase: this.cfg.networkPassphrase,
+    })
+      .addOperation(op)
+      .setTimeout(opts.timeoutSecs ?? 30)
+      .build();
+    const sim = await this.server.simulateTransaction(raw);
+    if (rpc.Api.isSimulationError(sim)) {
+      throw new Error(`enter: ${sim.error}`);
+    }
+    if (rpc.Api.isSimulationRestore(sim)) {
+      throw new Error(
+        "enter: ledger state requires restoreFootprint before invoking enter",
+      );
+    }
+    return rpc.assembleTransaction(raw, sim).build();
+  }
+}
+
+export interface SimulatedEnterOptions {
+  /** Base inclusion fee in stroops (defaults to `"100"`). Simulation adds `minResourceFee`. */
+  fee?: string;
+  /** Transaction timeout in seconds (defaults to `30`). */
+  timeoutSecs?: number;
 }
 
 export interface PassRecord {

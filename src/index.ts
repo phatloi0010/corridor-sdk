@@ -10,6 +10,7 @@
  *   await c.enter(corridorId, proof);                      // needs relayerUrl (M6)
  */
 
+import type { Account, Transaction } from "@stellar/stellar-sdk";
 import type {
   Bytes32,
   CorridorConfig,
@@ -19,6 +20,7 @@ import type {
   EligibilityWitness,
 } from "./types.js";
 import { SorobanReader } from "./soroban.js";
+import type { SimulatedEnterOptions } from "./soroban.js";
 import { buildWitness } from "./witness.js";
 import { fromEnv } from "./networks.js";
 
@@ -48,7 +50,7 @@ export {
   assembleCredential,
 } from "./fixture.js";
 export { SorobanReader } from "./soroban.js";
-export type { PassRecord } from "./soroban.js";
+export type { PassRecord, SimulatedEnterOptions } from "./soroban.js";
 export { verifyWitnessLocally } from "./verify-local.js";
 export type { LocalCheck } from "./verify-local.js";
 export * from "./hex.js"; // incl. randomSecret, assertStrongSecret (audit H5)
@@ -139,6 +141,20 @@ export class Corridor {
     if (!res.ok) throw new Error(`relayer ${res.status}: ${await res.text()}`);
     return (await res.json()) as { txHash: string };
   }
+
+  /**
+   * Assemble and simulate `corridor_attestation.enter(corridor_id, proof, public_inputs)`
+   * without submitting, returning a ready-to-sign `Transaction` for a wallet
+   * such as Freighter.
+   */
+  simulatedEnter(
+    corridorId: Bytes32,
+    proof: Proof,
+    source: string | Account,
+    opts?: SimulatedEnterOptions,
+  ): Promise<Transaction> {
+    return this.reader.simulatedEnter(corridorId, proof, source, opts);
+  }
 }
 
 /** One-call helper for corridor operators. */
@@ -148,4 +164,18 @@ export async function isCleared(
   nullifier: Bytes32,
 ): Promise<boolean> {
   return new Corridor(cfg).isCleared(corridorId, nullifier);
+}
+
+/**
+ * One-call helper to assemble a simulated `corridor_attestation.enter(...)`
+ * transaction that a wallet (e.g. Freighter) can sign directly.
+ */
+export async function simulatedEnter(
+  cfg: CorridorConfig,
+  corridorId: Bytes32,
+  proof: Proof,
+  source: string | Account,
+  opts?: SimulatedEnterOptions,
+): Promise<Transaction> {
+  return new Corridor(cfg).simulatedEnter(corridorId, proof, source, opts);
 }
